@@ -1,5 +1,10 @@
 {
   "$schema": "https://clshortfuse.github.io/renodx/renodx-metadata-schema.json",
   "id": "pacmanghostlyadventures",
-  "title": "PAC-MAN and the Ghostly Adventures"
+  "title": "PAC-MAN and the Ghostly Adventures",
+  "deploy": {
+    "architecture": [
+      "x86"
+    ]
+  }
 }
