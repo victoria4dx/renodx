@@ -298,6 +298,43 @@ void OnInitSwapchain(reshade::api::swapchain* swapchain, bool resize) {
   fired_on_init_swapchain = true;
 }
 
+// With the device proxy there are two ReShade runtimes: one on the game's Direct3D 9
+// device and one on the proxy Direct3D 11 device. The game renders into the upgraded
+// target, so nothing redraws the Direct3D 9 back buffer and whatever ReShade's first
+// runtime paints there (splash, menu, cursor) accumulates and shows over the picture.
+// Clear that back buffer every frame, and keep the menu on the proxy runtime only.
+void OnPresentClearHostBackBuffer(
+    reshade::api::command_queue* queue,
+    reshade::api::swapchain* swapchain,
+    const reshade::api::rect* /*source_rect*/,
+    const reshade::api::rect* /*dest_rect*/,
+    uint32_t /*dirty_rect_count*/,
+    const reshade::api::rect* /*dirty_rects*/) {
+  auto* device = swapchain->get_device();
+  if (device->get_api() != reshade::api::device_api::d3d9) return;
+
+  const auto back_buffer = swapchain->get_current_back_buffer();
+  if (back_buffer.handle == 0u) return;
+  const auto desc = device->get_resource_desc(back_buffer);
+
+  reshade::api::resource_view rtv = {0u};
+  if (!device->create_resource_view(
+          back_buffer,
+          reshade::api::resource_usage::render_target,
+          reshade::api::resource_view_desc(desc.texture.format),
+          &rtv)) {
+    return;
+  }
+  const float clear_color[4] = {0.f, 0.f, 0.f, 0.f};
+  queue->get_immediate_command_list()->clear_render_target_view(rtv, clear_color);
+  device->destroy_resource_view(rtv);
+}
+
+bool OnReShadeOpenOverlay(reshade::api::effect_runtime* runtime, bool open, reshade::api::input_source /*source*/) {
+  // Returning true blocks the change. Only the proxy (Direct3D 11) runtime may open its menu.
+  return open && runtime->get_device()->get_api() == reshade::api::device_api::d3d9;
+}
+
 }  // namespace
 
 extern "C" __declspec(dllexport) constexpr const char* NAME = "RenoDX";
@@ -344,6 +381,15 @@ BOOL APIENTRY DllMain(HMODULE h_module, DWORD fdw_reason, LPVOID lpv_reserved) {
   renodx::utils::settings::Use(fdw_reason, &settings, &OnPresetOff);
   renodx::mods::swapchain::Use(fdw_reason, &shader_injection);
   renodx::mods::shader::Use(fdw_reason, custom_shaders, &shader_injection);
+
+  if (fdw_reason == DLL_PROCESS_ATTACH) {
+    // Registered after the modules above so the proxy copies the frame before the clear.
+    reshade::register_event<reshade::addon_event::present>(OnPresentClearHostBackBuffer);
+    reshade::register_event<reshade::addon_event::reshade_open_overlay>(OnReShadeOpenOverlay);
+  } else if (fdw_reason == DLL_PROCESS_DETACH) {
+    reshade::unregister_event<reshade::addon_event::present>(OnPresentClearHostBackBuffer);
+    reshade::unregister_event<reshade::addon_event::reshade_open_overlay>(OnReShadeOpenOverlay);
+  }
 
   return TRUE;
 }
