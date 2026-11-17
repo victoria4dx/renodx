@@ -22,9 +22,8 @@
 
 namespace {
 
-renodx::mods::shader::CustomShaders custom_shaders = {
-__ALL_CUSTOM_SHADERS,
-};
+// No game shaders are replaced yet; the swap chain proxy shaders do the HDR output.
+renodx::mods::shader::CustomShaders custom_shaders = {};
 
 ShaderInjectData shader_injection;
 
